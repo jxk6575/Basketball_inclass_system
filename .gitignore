@@ -1,0 +1,51 @@
+# Local data — keep schema examples and dataset READMEs only
+data/*
+!data/schema_examples/
+!data/schema_examples/**
+!data/test_data_v1/
+data/test_data_v1/*
+!data/test_data_v1/README.md
+!data/test_data_v2/
+data/test_data_v2/*
+!data/test_data_v2/README.md
+!data/test_data_v3/
+data/test_data_v3/*
+!data/test_data_v3/README.md
+
+# Model weights (download via scripts/download_models.py)
+models/**
+!models/.gitkeep
+
+# Historical source snapshots
+versions/
+
+# Secrets & caches
+*.db
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+
+# Media / weights anywhere
+*.mp4
+*.mkv
+*.avi
+*.ckpt
+*.onnx
+*.pt
+*.pth
+*.bin
+checkpoints/
+
+# IDE / agent
+.idea/
+.vscode/
+.cursor/
+
+# Build / temp
+*.html.bak
+*.log
+/tmp/

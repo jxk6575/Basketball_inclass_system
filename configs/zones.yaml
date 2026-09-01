@@ -1,0 +1,45 @@
+# 练习区域 ↔ 主责摄像头映射（v2）
+# 每区域指定 primary_camera（动作切分/评分主时钟）与辅助机位（3D 融合）
+
+zones:
+  three_point_left:
+    display_name: 左侧三分练习区
+    primary_camera: cam_01
+    assist_cameras: [cam_02, cam_04]
+    max_persons: 6
+    action_types: [jump_shot, triple_threat]
+    roi_ref: cam_01.three_point_zone
+
+  three_point_right:
+    display_name: 右侧三分练习区
+    primary_camera: cam_02
+    assist_cameras: [cam_01, cam_04]
+    max_persons: 6
+    action_types: [jump_shot, triple_threat]
+    roi_ref: cam_02.three_point_zone
+
+  free_throw_line:
+    display_name: 罚球线 / 禁区上篮
+    primary_camera: cam_03
+    assist_cameras: [cam_01, cam_02, cam_04]
+    max_persons: 1
+    # 允许出现的动作族（路由/UI）；真实类型始终由 pipeline 自动判别，不读此默认值
+    action_types: [free_throw, layup, jump_shot]
+    roi_ref: cam_03.free_throw_line
+
+  rim_shot_check:
+    display_name: 篮筐进球判定区
+    primary_camera: cam_04
+    assist_cameras: []
+    max_persons: 0
+    action_types: []
+    roi_ref: cam_04.rim_area
+    future: shot_outcome_detection
+
+session_modes:
+  sequential:
+    - zone_id: free_throw_line
+    - zone_id: three_point_left
+  parallel:
+    - zone_id: three_point_left
+    - zone_id: three_point_right

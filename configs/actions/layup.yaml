@@ -1,0 +1,48 @@
+action: layup
+display_name: 三步上篮
+description: 三步上篮步序与起跳规范
+
+phases:
+  - name: approach
+    display_name: 起步
+    metrics:
+      step_count:
+        metric: steps_before_gather
+        min: 2
+        max: 3
+        weight: 0.3
+        unit: count
+
+  - name: gather
+    display_name: 收球
+    metrics:
+      knee_angle:
+        joint: takeoff_knee
+        min: 100
+        max: 140
+        weight: 0.25
+        unit: deg
+
+  - name: takeoff
+    display_name: 起跳
+    metrics:
+      com_balance:
+        metric: hip_shoulder_lateral_dev
+        min: 0.0
+        max: 0.15
+        weight: 0.2
+        unit: m
+
+  - name: release
+    display_name: 出手
+    metrics:
+      elbow_angle:
+        joint: shooting_elbow
+        min: 45
+        max: 90
+        weight: 0.25
+        unit: deg
+
+scoring:
+  pass_threshold: 60
+  excellent_threshold: 85

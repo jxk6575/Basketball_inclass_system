@@ -1,0 +1,163 @@
+# FIBA 标准球场控制点（单位：米）
+# 坐标系：原点 = 进攻端底线中点（篮筐侧），地面 z=0
+#   +x = 面向半场时向右（右边线方向）
+#   +y = 从底线指向中线 / 半场
+#   +z = 向上
+#
+# 部分点可能只出现在 1–2 路画面；求解时按「每相机可见点」独立标定，不要求点点共视。
+
+standard: FIBA
+court_length_m: 28.0
+court_width_m: 15.0
+
+axes:
+  origin: "near_baseline_midpoint"
+  x: "right_sideline"
+  y: "toward_center_line"
+  z: "up"
+
+# 各相机推荐标注顺序（按实际机位视野裁剪；GUI 只循环这些点）
+annotation_order_by_camera:
+  cam_01:
+    - corner_br          # 底线右角
+    - paint_br           # 限制区底线右
+    - paint_fr           # 限制区罚球线右
+    - ft_circle_r        # 罚球圈-罚球线右交点
+    - ft_circle_l        # 罚球圈-罚球线左交点
+  cam_02:
+    - corner_bl          # 底线左角
+    - paint_bl           # 限制区底线左
+    - paint_br           # 限制区底线右
+    - paint_fl           # 限制区罚球线左
+    - paint_fr           # 限制区罚球线右
+    - ft_circle_r        # 罚球圈-罚球线右交点
+    - ft_circle_l        # 罚球圈-罚球线左交点
+  cam_03:
+    - center_circle_r    # 中圈-中线右交点
+    - corner_mr          # 中线右边线交点（勿与中圈右交点混淆）
+    - paint_fr           # 限制区罚球线右
+    - ft_circle_r        # 罚球圈-罚球线右交点
+    - ft_circle_l        # 罚球圈-罚球线左交点
+
+# 建议优先用于人体三角化的点（半场近端）
+priority_for_body_triangulation:
+  - corner_bl
+  - corner_br
+  - paint_bl
+  - paint_br
+  - paint_fl
+  - paint_fr
+  - ft_circle_l
+  - ft_circle_r
+  - ft_mid
+  - center_circle_r
+  - corner_mr
+
+# 机位几何先验（求解时硬约束 / 同高）
+# FIBA：三分线角距边线 0.90m → 底线-三分线左交点 = (-7.5+0.9, 0)=(-6.6, 0)
+# cam_03：该点向右 0.20m、向外（场外，-y）0.15m → (-6.4, -0.15)
+camera_pose_priors:
+  enforce_shared_height: true
+  height_range_m: [1.5, 4.0]
+  # 边线外侧最小外伸（相对边线 x=±7.5）
+  sideline_outside_m: 0.05
+  cam_03:
+    # 仅约束水平位置；高度与另外两机共享
+    xy_target_m: [-6.4, -0.15]
+    xy_slack_m: 0.05
+  cam_01:
+    side: left          # Cx ≤ -7.5 - outside
+  cam_02:
+    side: right         # Cx ≥ +7.5 + outside
+
+landmarks:
+  # —— 球场四角 ——
+  corner_bl:
+    name: 底线左角
+    xyz: [-7.5, 0.0, 0.0]
+    group: court_corners
+    typical_cameras: [cam_02]
+  corner_br:
+    name: 底线右角
+    xyz: [7.5, 0.0, 0.0]
+    group: court_corners
+    typical_cameras: [cam_01]
+  corner_ml:
+    name: 中线左边线交点
+    xyz: [-7.5, 14.0, 0.0]
+    group: court_corners
+    typical_cameras: []
+  corner_mr:
+    name: 中线右边线交点
+    xyz: [7.5, 14.0, 0.0]
+    group: court_corners
+    typical_cameras: [cam_03]
+  corner_fl:
+    name: 远端底线左角
+    xyz: [-7.5, 28.0, 0.0]
+    group: court_corners
+    typical_cameras: []
+  corner_fr:
+    name: 远端底线右角
+    xyz: [7.5, 28.0, 0.0]
+    group: court_corners
+    typical_cameras: []
+
+  # —— 篮下限制区四角 ——
+  paint_bl:
+    name: 限制区底线左
+    xyz: [-2.45, 0.0, 0.0]
+    group: restricted_area
+    typical_cameras: [cam_02]
+  paint_br:
+    name: 限制区底线右
+    xyz: [2.45, 0.0, 0.0]
+    group: restricted_area
+    typical_cameras: [cam_01, cam_02]
+  paint_fl:
+    name: 限制区罚球线左
+    xyz: [-2.45, 5.80, 0.0]
+    group: restricted_area
+    typical_cameras: [cam_02]
+  paint_fr:
+    name: 限制区罚球线右
+    xyz: [2.45, 5.80, 0.0]
+    group: restricted_area
+    typical_cameras: [cam_01, cam_02, cam_03]
+
+  # —— 罚球圈与罚球线交点 ——
+  ft_circle_l:
+    name: 罚球圈-罚球线左交点
+    xyz: [-1.80, 5.80, 0.0]
+    group: free_throw_circle
+    typical_cameras: [cam_01, cam_02, cam_03]
+  ft_circle_r:
+    name: 罚球圈-罚球线右交点
+    xyz: [1.80, 5.80, 0.0]
+    group: free_throw_circle
+    typical_cameras: [cam_01, cam_02, cam_03]
+
+  # —— 中圈与半场线交点 ——
+  center_circle_l:
+    name: 中圈-中线左交点
+    xyz: [-1.80, 14.0, 0.0]
+    group: center_circle
+    typical_cameras: []
+  center_circle_r:
+    name: 中圈-中线右交点
+    xyz: [1.80, 14.0, 0.0]
+    group: center_circle
+    typical_cameras: [cam_03]
+  center_mid:
+    name: 中线中点
+    # 半场线正中 = 中圈圆心落在中线上的位置，不是边线交点
+    xyz: [0.0, 14.0, 0.0]
+    group: center_circle
+    typical_cameras: [cam_03]
+
+  # 辅助：罚球线中点
+  ft_mid:
+    name: 罚球线中点
+    xyz: [0.0, 5.80, 0.0]
+    group: free_throw_circle
+    typical_cameras: [cam_03]

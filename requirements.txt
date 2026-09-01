@@ -1,0 +1,17 @@
+# Core
+pyyaml>=6.0
+numpy>=1.24
+opencv-python>=4.8
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5
+jinja2>=3.1
+
+# Optional ML backends (install when GPU/models available)
+# onnxruntime-gpu>=1.16
+# insightface>=0.7
+# torch>=2.0
+# torchvision>=0.15
+
+# Pose2Sim integration (optional)
+# pose2sim>=0.10

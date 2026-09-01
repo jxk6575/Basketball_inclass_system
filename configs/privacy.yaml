@@ -1,0 +1,48 @@
+# 本地隐私与数据留存策略
+storage:
+  root: data
+  local_only: true
+  bind_host: 127.0.0.1
+  allow_egress: false
+
+consent:
+  required_scopes:
+    - video
+    - face
+    - report
+  consent_text_version: "2026-07-v1"
+  default_scope:
+    - video
+    - face
+    - report
+
+retention:
+  raw_video_days: 30
+  embedding_days_after_session: 7
+  pose3d_and_report_days: 180  # 约一学期
+  audit_log_days: 365
+
+deletion:
+  cascade_on_revoke: true
+  paths_on_revoke:
+    - enrollment/{session_id}/{student_id}
+    - sessions/{session_id}/perception/**/{student_id}*
+    - sessions/{session_id}/pose3d/{student_id}.*
+    - sessions/{session_id}/angles/{student_id}.*
+    - sessions/{session_id}/actions/{student_id}.*
+    - sessions/{session_id}/reports/{student_id}.*
+
+audit:
+  log_actions:
+    - session_create
+    - consent_grant
+    - consent_revoke
+    - enrollment_capture
+    - recording_start
+    - recording_stop
+    - pipeline_run
+    - report_view
+    - data_delete
+
+encryption:
+  gallery_at_rest: false  # 可选开启 AES 加密 embedding 文件

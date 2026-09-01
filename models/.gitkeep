@@ -1,0 +1,3 @@
+# 模型权重（由 download_models.py 下载）
+models/
+!models/.gitkeep

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <title>篮球课堂辅助系统</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+  <header>
+    <h1>篮球课堂辅助系统</h1>
+    <p class="notice">数据仅本地存储 · 学生享有知情权</p>
+  </header>
+
+  <main>
+    <section id="session">
+      <h2>1. 创建课程 Session</h2>
+      <input id="classId" placeholder="班级 ID" value="class_demo"/>
+      <button onclick="createSession()">创建</button>
+      <p>Session ID: <code id="sessionId">—</code></p>
+    </section>
+
+    <section id="consent">
+      <h2>2. 学生注册与知情同意</h2>
+      <input id="studentId" placeholder="学号"/>
+      <input id="studentName" placeholder="姓名"/>
+      <button onclick="registerStudent()">注册学生</button>
+      <button onclick="grantConsent()">确认知情同意</button>
+      <ul id="consentList"></ul>
+    </section>
+
+    <section id="pipeline">
+      <h2>3. 分析与报告</h2>
+      <button onclick="markRecorded()">标记已录制</button>
+      <button onclick="runPipeline()">运行离线分析</button>
+      <pre id="pipelineResult"></pre>
+      <ul id="reportList"></ul>
+    </section>
+
+    <section id="privacy">
+      <h2>4. 隐私管理</h2>
+      <button onclick="loadAudit()">查看审计日志</button>
+      <pre id="auditLog"></pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

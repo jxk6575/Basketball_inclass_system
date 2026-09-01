@@ -1,0 +1,42 @@
+# Pose2Sim session config template (v2 — per-camera isolated + timestamp fusion)
+[project]
+multi_person = true
+pose_model = 'Whole_body'
+
+[pose]
+backend = 'rtmlib'
+det_frequency = 1
+
+[triangulation]
+likelihood_threshold = 0.3
+min_cameras_for_triangulation = 2
+
+[synchronization]
+# v2: cameras may have different frame counts; align by time before triangulation
+method = 'timestamp'
+synchronize_cams = true
+
+[filtering]
+filter = true
+filter_type = 'butterworth'
+cutoff_frequency = 6
+
+[kinematics]
+use_opensim = false
+compute_vector_angles = true
+
+[paths]
+calibration = 'data/calibration/v2_4cam_zoned'
+videos = 'data/sessions/{session_id}/raw'
+pose2d = 'data/sessions/{session_id}/perception'
+pose3d = 'data/sessions/{session_id}/pose3d'
+angles = 'data/sessions/{session_id}/angles'
+sync = 'data/sessions/{session_id}/sync'
+
+[identity]
+use_student_id_constraint = true
+anchor_camera = 'cam_03'
+
+[cameras]
+# cam_01 left 3pt | cam_02 right 3pt | cam_03 baseline FT | cam_04 rim
+ids = ['cam_01', 'cam_02', 'cam_03', 'cam_04']

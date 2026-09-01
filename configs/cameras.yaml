@@ -1,0 +1,196 @@
+# 四机位布局 v2 — 按机位独立处理，不假设帧对齐
+layout_id: v2_4cam_zoned
+description: 左右三分区 + 底线罚球 + 篮筐区；感知/检测按摄像头分离
+
+# 机位编号与物理位置（与硬件接线一致）
+# cam_01 左侧边线 | cam_02 右侧边线 | cam_03 底线罚球 | cam_04 篮筐
+
+processing:
+  mode: per_camera_isolated   # 每路独立检测与感知，禁止跨机位共享 frame_idx
+  fusion_align: timestamp     # 仅融合阶段按时间戳/事件对齐
+
+sync:
+  # 录制阶段不强制帧对齐；后处理用事件对齐估常量偏移 Δt
+  mode: independent
+  align_method: event_anchor   # event_anchor | timestamp_window | pose2sim_synchronize
+  default_fps: 30
+  max_drift_ms: 200                # clip 窗口半宽（映射到各机位时额外放宽）
+  event_anchor_camera: cam_03      # 罚球/投篮动作切分主时钟
+  prefer_manual_offsets: true      # raw/sync_meta / group sync / 下方 manual 优先于 event
+  # 全局手写偏移（所有 session 共用）；单 session 请用 scripts/sync_cameras.py --set-offset
+  # 约定: common_ms = local_ms - offset_ms；锚点 cam_03 应为 0
+  manual_offsets_ms: {}
+  # 例: {cam_01: 0, cam_02: 150, cam_04: -80}
+  # GUI 组级偏移目录：scripts/sync_group_gui.py → <dir>/sync/group_XX.json
+  group_sync_data_dir: data/test_data_v3
+  event_sync:
+    max_match_ms: 2500             # 跨机位事件配对最大时差
+    min_matches: 2                 # ≥2 对才标为 ok（1 对仍写入但标 weak）
+    use_rim_events: true           # cam_04 球段中点参与对齐
+    gap_ms: 900                    # 同机位峰合并（交给 release 检测）
+
+enrollment_camera: cam_02              # v3: 顺序正面注册（group0 面向 cam_02）；v2 曾用 cam_01
+action_segment_camera: cam_03      # 规则切分主输入（罚球正面）
+shot_outcome_camera: cam_04        # 篮球轨迹 + 进筐判定
+
+cameras:
+  cam_01:
+    index: 1
+    name: 左边线三分区
+    position: sideline_left
+    resolution: [1920, 1080]
+    fps: 30
+    pipeline: isolated
+    coverage: three_point_arc_left
+    roles:
+      - enrollment
+      - three_point_zone
+      - multiperson_tracking
+      - pose2d
+      - triangulation_side
+      - identity_body
+    roi_normalized:
+      three_point_zone: [0.15, 0.08, 0.95, 0.95]
+      enrollment_zone: [0.25, 0.10, 0.75, 0.95]
+
+  cam_02:
+    index: 2
+    name: 右边线三分区
+    position: sideline_right
+    resolution: [1920, 1080]
+    fps: 30
+    pipeline: isolated
+    coverage: three_point_arc_right
+    roles:
+      - three_point_zone
+      - multiperson_tracking
+      - pose2d
+      - triangulation_side
+      - identity_body
+    roi_normalized:
+      three_point_zone: [0.05, 0.08, 0.85, 0.95]
+
+  cam_03:
+    index: 3
+    name: 底线罚球点
+    position: baseline_free_throw
+    resolution: [1920, 1080]
+    fps: 30
+    pipeline: isolated
+    coverage: free_throw_lane
+    roles:
+      - face_primary
+      - free_throw_front
+      - triple_threat_front
+      - action_segmentation
+      - pose2d
+      - triangulation_front
+    roi_normalized:
+      free_throw_line: [0.25, 0.15, 0.75, 0.95]
+
+  cam_04:
+    index: 4
+    name: 篮筐区
+    position: backboard_rim
+    resolution: [1920, 1080]
+    fps: 30
+    pipeline: isolated
+    coverage: rim_and_release
+    roles:
+      - rim_view
+      - release_detail
+      - follow_through
+      - shot_outcome
+      - ball_tracking
+    roi_normalized:
+      rim_area: [0.20, 0.05, 0.80, 0.70]
+      backboard: [0.30, 0.02, 0.70, 0.45]
+    models:
+      ball_hoop: models/detection/yolo_ball/Basketball_v1.pt
+
+# 人体检测 / 骨架置信度（提高阈值以减少误检）
+perception:
+  person_detect_score_threshold: 0.5
+  enrollment_detect_score_threshold: 0.5
+  person_kpt_score_threshold: 0.28   # 略降；投篮举手时关键点分易偏低
+  skeleton_draw_threshold: 0.25
+  min_person_area_ratio: 0.012
+  min_valid_keypoints: 7
+  person_detector: yolo_pose
+  shot_camera_process_scale: 0.75
+  assist_camera_stride: 4
+  hoop_calibrate_frames: 2           # 检出前 N 次合理筐框后冻结，避免后续跳变
+identity:
+  # v2: body + clothing primary; face is weak auxiliary only (侧机位/投篮时脸常不可用).
+  # match_mode face_body_color keeps optional face; body_color skips face entirely.
+  match_mode: face_body_color   # body_color | face_body_color | face_body
+  face_alpha_high: 0.20
+  face_alpha_low: 0.0
+  face_score_threshold: 0.72
+  # gallery 匹配代价上限（cost = α*(1-face_sim) + (1-α)*(1-body_sim)，越小越像）
+  gallery_match_cost_threshold: 0.58
+  body_match_threshold: 0.65
+  gallery_face_samples: 5
+  gallery_body_samples: 12
+  # Prefer tracklet-aggregated color over noisy single-frame clothing
+  clothing_color_weight: 0.55
+  tracklet_color_weight_scale: 1.05
+  # Part weights from gallery pairwise separation; higher power → sharper
+  # emphasis on parts that actually differ across people (shoes/pants…).
+  clothing_color_disc_power: 2.4
+  clothing_color_uniqueness_blend: 0.72   # weight on per-student unique parts
+  clothing_color_relative: true           # score by margin vs 2nd-best, not absolute sim
+  clothing_color_rel_temperature: 0.12    # soft margin scale (lower = sharper)
+  # Require clearer margin vs 2nd-best (stu_01↔stu_03 body sim ~0.82)
+  ambiguity_margin: 0.045
+  # Sticky track ID: resist overwrite during brief gallery confusion (release/occlusion)
+  sticky_protect_conf: [high, medium, sticky]
+  sticky_overwrite_cost_margin: 0.14
+  sticky_ttl_frames: 280
+  # Require sustained better gallery hits before flipping sticky ID
+  sticky_switch_streak: 4
+  # Phase 1: tracklet EMA / temporal median + infrequent gallery commit
+  tracklet_ema_alpha: 0.28
+  tracklet_temporal_median: true
+  tracklet_median_window: 7
+  gallery_commit_min_hits: 5
+  gallery_commit_every: 5
+  gallery_commit_min_margin: 0.06
+  # Post-perception: one track → stable ID (no session-wide person-count collapse)
+  track_id_smooth:
+    enabled: true
+    window_frames: 60
+    min_mass: 6.0
+    switch_margin: 0.28
+    global_bias_share: 0.55
+    chain_max_gap_frames: 90
+    chain_min_iou: 0.08
+    chain_max_center_dist: 320.0
+    # If a camera never sees >1 person, merge broken-track IDs (occupancy evidence)
+    solo_occupancy_merge: true
+  # ByteTrack-lite association + constant-velocity IoU prediction (no GMC)
+  bytetrack_assoc: true
+  bytetrack_high_score: 0.55
+  bytetrack_low_score: 0.15
+  assoc_high_score_thr: 0.22
+  assoc_low_iou_thr: 0.35
+  kalman_iou: true
+  inherit_sticky_neighbors: false
+  # Cross-camera ID: cam_01↔cam_02 左右反序配对（禁区对面视角）
+  cross_cam_spatial:
+    enabled: true
+    mode: image_lr_reverse         # image_lr_reverse | court_xy
+    pair_left: cam_01
+    pair_right: cam_02
+    prefer_camera: cam_01          # 同秩冲突时优先谁的 student_id
+    max_dt_ms: 500                 # 同步时间窗
+    sample_stride: 2
+    # 只修补 missing/low；禁止用 lr_order 覆盖 high/medium（避免与外观 ReID 互刷）
+    only_fix_low_or_missing: true
+    align_front: false             # cam_03 与边线左右假设不稳，默认不强制对齐
+    never_overwrite: [high, medium, sticky, spatial_prior]
+    # court_xy 备用参数（mode=court_xy 时）
+    anchor_camera: cam_03
+    max_court_dist_m: 1.25
+    min_close_pairs: 3
+    time_overlap_pad_ms: 400

@@ -1,0 +1,75 @@
+# 模型权重路径（由 scripts/download_models.py 生成/更新）
+root: models
+
+device:
+  prefer_gpu: true
+  onnx_providers:
+    - CUDAExecutionProvider
+    - CPUExecutionProvider
+  insightface_ctx_id: 0  # GPU id
+
+detector:
+  name: yolox_m
+  path: models/detection/yolox_m/end2end.onnx
+  input_size: [640, 640]
+  url_zip: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/yolox_m_8xb8-300e_humanart-c2c7a14a.zip
+
+pose:
+  name: rtmw_l_133
+  path: models/pose/rtmw_l/end2end.onnx
+  input_size: [384, 288]
+  url_zip: https://download.openmmlab.com/mmpose/v1/projects/rtmw/onnx_sdk/rtmw-dw-x-l_simcc-cocktail14_270e-384x288_20231122.zip
+  mode: performance  # lightweight | balanced | performance
+
+pose3d:
+  name: rtmw3d_x
+  path: models/pose3d/rtmw3d_x/rtmw3d-x.onnx
+  url: https://huggingface.co/Soykaf/RTMW3D-x/resolve/main/onnx/rtmw3d-x_8xb64_cocktail14-384x288-b0a0eab7_20240626.onnx
+
+face:
+  name: buffalo_l
+  # InsightFace 自动缓存到 ~/.insightface/models/buffalo_l
+  auto_download: true
+
+body_reid:
+  name: osnet_x1_0
+  path: models/reid/osnet_x1_0_msmt17.pth
+  repo_id: kaiyangzhou/osnet
+  filename: osnet_x1_0_msmt17_combineall_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip_jitter.pth
+
+ball_hoop:
+  # Basketball.pt 的 class0/1 与 v1 相反（0=hoop,1=ball）；v1 为 0=ball,1=hoop
+  name: Basketball_v1
+  path: models/detection/yolo_ball/Basketball_v1.pt
+  imgsz: 1280
+  ball_confidence: 0.15
+  hoop_confidence: 0.35
+  half: false
+  # 仅当权重类名是数字且与默认相反时打开；Basketball.pt 会自动识别
+  swap_ball_hoop_classes: false
+  alt_weights:
+    - models/detection/yolo_ball/Basketball.pt
+    - models/detection/yolo_ball/Basketball_gym.pt
+
+yolo_pose:
+  # Canonical person detector: YOLO11m-Pose（g07 cam_03 对比选定）
+  name: yolo11m-pose
+  path: models/detection/yolo_pose/yolo11m-pose.pt
+  imgsz: 640
+  confidence: 0.45
+  keypoint_confidence: 0.5
+  min_core_keypoints: 5
+  min_valid_keypoints: 8
+  min_aspect_ratio: 0.65   # 投篮举手时 bbox 可变扁；原 1.0 过严
+  half: false
+  # SportsMOT 风格跟踪器（可选辅助）；课堂身份仍用 FaceBody ReID
+  sportsmot_tracker: botsort.yaml
+
+# Optional / historical — v1 action path is rule-based (not loaded at runtime)
+motionbert:
+  repo_id: walterzhu/MotionBERT
+  pretrain: models/motionbert/checkpoint/pretrain/MB_release/latest_epoch.bin
+  action_head: models/motionbert/checkpoint/action/FT_MB_release_MB_ft_NTU60_xsub/best_epoch.bin
+  files:
+    - checkpoint/pretrain/MB_release/latest_epoch.bin
+    - checkpoint/action/FT_MB_release_MB_ft_NTU60_xsub/best_epoch.bin

@@ -1,0 +1,36 @@
+# GPU 推理与模型依赖（在 basketball_classroom conda 环境中安装）
+# PyTorch 请通过 setup_gpu_env.sh 安装 cu124 版本
+
+# 核心（与 requirements.txt 重叠）
+pyyaml>=6.0
+numpy>=1.24,<2.0
+opencv-python>=4.8
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5
+jinja2>=3.1
+tqdm>=4.66
+requests>=2.31
+huggingface_hub>=0.20
+
+# ONNX GPU 推理（不要同时安装 onnxruntime CPU 版）
+onnxruntime-gpu>=1.17
+
+# 人体检测 + 全身133点姿态（RTMPose/RTMW）
+rtmlib>=0.0.13
+
+# 人脸识别 ArcFace
+insightface>=0.7.3
+onnx>=1.15
+
+# 身体 ReID（OSNet 推理；完整 CLIP-ReID 微调见 docs/环境配置GPU.md）
+torchreid>=0.2.5
+tensorboard>=2.14
+gdown>=4.7
+
+# MotionBERT 推理（可选完整训练栈）
+einops>=0.7
+timm>=0.9
+
+# Pose2Sim（多视三角化，按需）
+# pose2sim>=0.10

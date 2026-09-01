@@ -1,0 +1,40 @@
+{
+  "action_types": [
+    { "value": "free_throw", "label_zh": "罚篮", "family": "shooting", "has_release_ms": true, "has_make_miss": true },
+    { "value": "jump_shot", "label_zh": "跳投", "family": "shooting", "has_release_ms": true, "has_make_miss": true },
+    { "value": "layup", "label_zh": "上篮", "family": "shooting", "has_release_ms": true, "has_make_miss": true },
+    { "value": "triple_threat", "label_zh": "突破", "family": "pose_only", "has_release_ms": false, "has_make_miss": false },
+    { "value": "pass", "label_zh": "传球", "family": "pose_only", "has_release_ms": false, "has_make_miss": false },
+    { "value": "unknown", "label_zh": "未知", "family": null, "has_release_ms": false, "has_make_miss": false }
+  ],
+
+  "phases": {
+    "record": [
+      { "value": "load", "label_zh": "蓄力" },
+      { "value": "set", "label_zh": "置球" },
+      { "value": "release", "label_zh": "出手" },
+      { "value": "follow_through", "label_zh": "压腕随挥" }
+    ],
+
+    "clip_by_action_type": {
+      "free_throw": ["load", "set", "release", "follow_through"],
+      "jump_shot": ["load", "takeoff", "release", "follow_through"],
+      "layup": ["approach", "gather", "takeoff", "release", "finish"],
+      "triple_threat": ["load", "action", "recover"],
+      "pass": ["load", "action", "recover"]
+    },
+
+    "clip_labels_zh": {
+      "load": "蓄力",
+      "set": "设定点",
+      "takeoff": "起跳",
+      "release": "出手",
+      "follow_through": "跟随",
+      "approach": "起步",
+      "gather": "收球",
+      "finish": "终结",
+      "action": "动作",
+      "recover": "恢复"
+    }
+  }
+}

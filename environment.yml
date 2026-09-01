@@ -1,0 +1,12 @@
+name: basketball_classroom
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch>=2.2
+  - torchvision
+  - pytorch-cuda=12.4
+  - cudnn

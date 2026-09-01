@@ -1,0 +1,69 @@
+action: free_throw
+display_name: 罚篮
+description: 标准罚球动作规范评估
+
+phases:
+  - name: load
+    display_name: 蓄力
+    metrics:
+      knee_angle:
+        joint: left_knee  # 或根据投篮手选择
+        min: 110
+        max: 135
+        weight: 0.25
+        unit: deg
+        feedback_low: 膝关节弯曲不足，建议加大蓄力深度
+        feedback_high: 蹲得过低，可能影响出手节奏
+      elbow_angle:
+        joint: right_elbow
+        min: 70
+        max: 95
+        weight: 0.15
+        unit: deg
+
+  - name: set
+    display_name: 设定点
+    metrics:
+      elbow_angle:
+        joint: right_elbow
+        min: 75
+        max: 90
+        weight: 0.15
+        unit: deg
+
+  - name: release
+    display_name: 出手
+    metrics:
+      wrist_angle:
+        joint: right_wrist
+        min: 160
+        max: 180
+        weight: 0.25
+        unit: deg
+        feedback_low: 出手时手腕压腕不足
+      release_height:
+        metric: wrist_height_m
+        min: 2.0
+        max: 2.8
+        weight: 0.15
+        unit: m
+
+  - name: follow_through
+    display_name: 跟随
+    metrics:
+      wrist_extension:
+        metric: wrist_extension_rate
+        min: 0.5
+        max: 1.0
+        weight: 0.05
+        unit: ratio
+      elbow_drop_delay:
+        metric: frames_after_release
+        min: 5
+        max: 30
+        weight: 0.05
+        unit: frames
+
+scoring:
+  pass_threshold: 60
+  excellent_threshold: 85
