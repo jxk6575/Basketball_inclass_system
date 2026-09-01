@@ -298,12 +298,15 @@ def _best_ball_person_in_window(
     )
     # Prefer raise when ball left the hand; fall back if a near-ball raised person exists
     if raise_ok:
-        # If ball-near candidate also has raised wrists and is much closer, prefer it
+        raise_s_best = _wrist_raise_score(best_raise_person)
+        # Only steal from raise-pose with a near-ball candidate that is also a
+        # strong release pose near t_ms (avoid early passer/inbounder).
         if (
             best_person is not None
             and best_dist <= near_px * 1.2
-            and _wrist_raise_score(best_person) >= 0.35
+            and _wrist_raise_score(best_person) >= max(0.55, raise_s_best - 0.15)
             and best_raise_dist > best_dist + 80.0
+            and abs(best_tm - t_ms) <= 350.0
         ):
             info.update({
                 "reason": "ball_person_window",
@@ -318,7 +321,7 @@ def _best_ball_person_in_window(
             "assoc_t_ms": best_raise_tm,
             "ball_xy": [round(best_raise_xy[0], 1), round(best_raise_xy[1], 1)] if best_raise_xy else None,
             "ball_dist": round(best_raise_dist, 1) if best_raise_dist < 1e8 else None,
-            "wrist_raise": round(_wrist_raise_score(best_raise_person), 3),
+            "wrist_raise": round(raise_s_best, 3),
         })
         return best_raise_person, info
 
@@ -466,6 +469,7 @@ def _gallery_rematch_shooter(
 
     min_body = float(cfg.get("release_rematch_min_body", 0.55))
     body_margin = float(cfg.get("release_rematch_body_margin", 0.045))
+    sticky = person.get("student_id")
     if len(body_ranked) >= 1 and body_ranked[0][1] >= min_body:
         best_s, best_v = body_ranked[0]
         second_v = body_ranked[1][1] if len(body_ranked) > 1 else 0.0
@@ -478,6 +482,11 @@ def _gallery_rematch_shooter(
             meta["reason"] = "fused_agrees_body"
             meta["sid"] = fused_sid
             return str(fused_sid), meta
+        # Soft: body top agrees with sticky/instant ID → reinforce
+        if sticky and best_s == str(sticky) and best_v - second_v >= body_margin * 0.5:
+            meta["reason"] = "body_agrees_sticky"
+            meta["sid"] = best_s
+            return best_s, meta
     if fused_sid and conf == "high" and float(bs) >= min_body:
         meta["reason"] = "fused_high"
         meta["sid"] = fused_sid
@@ -700,24 +709,59 @@ def spatial_shooter_sid_at(
             if c != anchor and i.get("sid")
         ]
         best_other_r = max(other_raises) if other_raises else 0.0
-        # Only trust solo action-cam when its raise clearly leads other cams
-        raise_leads = r >= best_other_r + 0.08 or not other_raises or r >= best_other_r - 0.05
+        # Only trust solo action-cam when its raise clearly leads / ties other cams
+        raise_leads = r >= best_other_r - 0.05 or not other_raises
         strong_pose = r >= 0.5 or (d <= 100.0 and r >= 0.35)
         # At release the ball often leaves the hand: high raise + clear ID on
         # action cam beats side-cam ball proximity (rebounder / passer trap).
+        # But do NOT lock action-cam when another cam has clearly higher raise.
         if (
             prefer_action_raise
             and r >= action_min_raise
             and margin >= 0.12
             and mass >= 6.0
-            and (raise_leads or anchor_info.get("rematch_sid"))
+            and raise_leads
         ):
             return _pack(anchor_info, "cam_raise_majority")
         if margin >= 0.15 and mass >= 8.0 and strong_pose and raise_leads:
             return _pack(anchor_info, "cam_raise_majority")
-        # Low-raise (TT / gather): trust action-cam holder only when ball is
-        # clearly closer than other cams' candidates with different IDs.
+        # Low-raise (TT / gather / layup at rim): trust action-cam holder only when
+        # ball is clearly closer than other cams' candidates with different IDs.
         if r < 0.35 and d <= 100.0 and margin >= 0.35 and mass >= 20.0:
+            # Side cams often see the driver with raised arms while action-cam
+            # tracks the ball at the rim (no wrist raise).
+            side_votes: Counter[str] = Counter()
+            for c, i in per_cam.items():
+                if c == anchor or not i.get("sid"):
+                    continue
+                rr = float(i.get("wrist_raise") or 0)
+                if rr < 0.45:
+                    continue
+                sid_v = str(i.get("rematch_sid") or i.get("sid"))
+                w = 1.6 if i.get("rematch_sid") else 1.0
+                side_votes[sid_v] += w
+            if side_votes:
+                ranked = side_votes.most_common(2)
+                best_side, w1 = ranked[0]
+                w2 = float(ranked[1][1]) if len(ranked) > 1 else 0.0
+                if (
+                    w1 >= 2.0
+                    and best_side != anchor_info.get("sid")
+                    and w1 - w2 >= 0.4
+                ):
+                    chosen_side = None
+                    best_rr = -1.0
+                    for c, i in per_cam.items():
+                        if c == anchor:
+                            continue
+                        sid_v = str(i.get("rematch_sid") or i.get("sid") or "")
+                        if sid_v != best_side:
+                            continue
+                        rr = float(i.get("wrist_raise") or 0)
+                        if rr > best_rr:
+                            best_rr, chosen_side = rr, i
+                    if chosen_side is not None:
+                        return _pack(chosen_side, "multicam_rematch_consensus")
             rival = False
             for c, i in per_cam.items():
                 if c == anchor or not i.get("sid") or i.get("sid") == anchor_info.get("sid"):
