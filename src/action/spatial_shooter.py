@@ -10,12 +10,17 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from src.action.registry import is_shooting_action
 from src.cameras.registry import get_action_segment_camera
-from src.config import data_path
+from src.config import data_path, load_yaml
 from src.types import ActionClip
+
+
+def _identity_cfg() -> dict:
+    return dict((load_yaml("cameras.yaml").get("identity") or {}))
 
 
 def _release_ms(clip: ActionClip) -> float | None:
@@ -261,7 +266,10 @@ def _best_ball_person_in_window(
                 raise_s = _wrist_raise_score(p)
                 d = _dist_to_ball(p, bxy) if bxy is not None else 1e9
                 if raise_s >= 0.45:
-                    rkey = (-raise_s, d if d < 1e8 else 500.0, abs(tm - t_ms))
+                    # Joint raise×proximity (Basketball-SORT / GIF: motion alone fails)
+                    dd = d if d < 1e8 else 420.0
+                    joint = float(raise_s) / (1.0 + dd / 160.0)
+                    rkey = (-joint, dd, abs(tm - t_ms))
                     if best_raise_key is None or rkey < best_raise_key:
                         best_raise_key = rkey
                         best_raise_person = p
@@ -282,12 +290,29 @@ def _best_ball_person_in_window(
                         best_dist = d
         tm += step_ms
 
-    # Clear release pose beats ball-only association (rebounder / spotter trap)
-    if (
+    raise_ok = (
         best_raise_person is not None
         and best_raise_key is not None
-        and (-best_raise_key[0]) >= 0.55
-    ):
+        and (-best_raise_key[0]) >= 0.28  # joint score threshold
+        and _wrist_raise_score(best_raise_person) >= 0.55
+    )
+    # Prefer raise when ball left the hand; fall back if a near-ball raised person exists
+    if raise_ok:
+        # If ball-near candidate also has raised wrists and is much closer, prefer it
+        if (
+            best_person is not None
+            and best_dist <= near_px * 1.2
+            and _wrist_raise_score(best_person) >= 0.35
+            and best_raise_dist > best_dist + 80.0
+        ):
+            info.update({
+                "reason": "ball_person_window",
+                "assoc_t_ms": best_tm,
+                "ball_xy": [round(best_xy[0], 1), round(best_xy[1], 1)] if best_xy else None,
+                "ball_dist": round(best_dist, 1),
+                "wrist_raise": round(_wrist_raise_score(best_person), 3),
+            })
+            return best_person, info
         info.update({
             "reason": "raise_pose_window",
             "assoc_t_ms": best_raise_tm,
@@ -318,6 +343,147 @@ _CONF_VOTE_W = {
     "spatial_prior": 1.2,
     "low": 0.2,
 }
+
+# Lazy singletons for release-time gallery rematch (GIF-style ID module)
+_REMATCH_CACHE: dict[str, Any] = {}
+
+
+def _read_video_frame(video_path: Path, t_ms: float):
+    import cv2
+
+    if not video_path.exists():
+        return None
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return None
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+    idx = int(round(float(t_ms) / 1000.0 * fps))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, idx))
+    ok, fr = cap.read()
+    cap.release()
+    return fr if ok else None
+
+
+def _gallery_rematch_shooter(
+    session_id: str,
+    camera_id: str,
+    person: dict,
+    t_ms: float,
+) -> tuple[str | None, dict[str, Any]]:
+    """
+    Re-query enrollment gallery on the shooter crop at release.
+
+    Sticky track IDs often freeze the wrong student during occlusion; a fresh
+    OSNet + clothing match on the raised-wrist crop recovers identity
+    (inspired by GIF WACV'26 global ID fusion, without heavy transformers).
+    Body margin is preferred over fused clothing when face is weak.
+    """
+    cfg = _identity_cfg()
+    meta: dict[str, Any] = {"enabled": bool(cfg.get("release_gallery_rematch", True))}
+    if not meta["enabled"]:
+        return None, meta
+    bb = person.get("bbox")
+    if not isinstance(bb, (list, tuple)) or len(bb) < 4:
+        meta["reason"] = "no_bbox"
+        return None, meta
+
+    gallery_id = session_id
+    enroll_root = data_path("enrollment", session_id)
+    if not enroll_root.exists() or not any(enroll_root.iterdir()):
+        # Fall back to shared gallery manifest
+        man = data_path("outputs", "v3", "gallery_manifest.json")
+        if not man.exists():
+            man = data_path("outputs", "v2", "gallery_manifest.json")
+        if man.exists():
+            try:
+                gallery_id = str(json.loads(man.read_text(encoding="utf-8")).get("session_id") or session_id)
+            except Exception:
+                gallery_id = session_id
+    meta["gallery_id"] = gallery_id
+
+    cache_key = f"tracker:{gallery_id}"
+    if cache_key not in _REMATCH_CACHE:
+        from src.identity.enrollment import EnrollmentGallery
+        from src.identity.tracker import FaceBodyTracker
+
+        gal = EnrollmentGallery(gallery_id)
+        thr = float(cfg.get("gallery_match_cost_threshold", 0.58))
+        _REMATCH_CACHE[cache_key] = FaceBodyTracker(gallery=gal, match_threshold=thr)
+        _REMATCH_CACHE[f"gallery:{gallery_id}"] = gal
+    tracker = _REMATCH_CACHE[cache_key]
+    gallery = _REMATCH_CACHE[f"gallery:{gallery_id}"]
+
+    if "body" not in _REMATCH_CACHE:
+        from src.identity.embedders import create_body_embedder, create_face_embedder
+
+        _REMATCH_CACHE["body"] = create_body_embedder()
+        _REMATCH_CACHE["face"] = create_face_embedder()
+    body_embeder = _REMATCH_CACHE["body"]
+    face_embeder = _REMATCH_CACHE["face"]
+
+    video = data_path("sessions", session_id, "raw", f"{camera_id}.mp4")
+    img = _read_video_frame(video, t_ms)
+    if img is None:
+        meta["reason"] = "no_frame"
+        return None, meta
+
+    from src.identity.clothing_color import extract_clothing_color
+    from src.identity.embedders import cosine_sim
+    from src.identity.perception import _estimate_face_bbox
+
+    kps = person.get("keypoints")
+    body_emb = body_embeder.embed(img, list(bb))
+    if body_emb is None:
+        meta["reason"] = "no_body_emb"
+        return None, meta
+    color = extract_clothing_color(img, list(bb), keypoints=kps)
+    face_bb = _estimate_face_bbox(list(bb), img.shape)
+    face_emb = face_embeder.embed(img, face_bb) if face_bb else None
+    alpha = float(cfg.get("face_alpha_high", 0.20)) if face_emb is not None else 0.0
+    fused_sid, fs, bs, conf, cost = tracker._match_gallery(
+        face_emb, body_emb, alpha=alpha, color_desc=color,
+    )
+
+    # Body-primary ranking (release faces are unreliable)
+    body_ranked: list[tuple[str, float]] = []
+    for sid in gallery.list_students():
+        data = gallery.load_student(sid)
+        bodies = data.get("body") or []
+        if not bodies:
+            continue
+        score = max(float(cosine_sim(body_emb, b)) for b in bodies)
+        body_ranked.append((sid, score))
+    body_ranked.sort(key=lambda x: -x[1])
+    meta["body_top"] = [
+        {"sid": s, "sim": round(v, 3)} for s, v in body_ranked[:3]
+    ]
+    meta["fused"] = {
+        "sid": fused_sid, "conf": conf,
+        "cost": round(float(cost), 3),
+        "face": round(float(fs), 3),
+        "body": round(float(bs), 3),
+    }
+
+    min_body = float(cfg.get("release_rematch_min_body", 0.55))
+    body_margin = float(cfg.get("release_rematch_body_margin", 0.045))
+    if len(body_ranked) >= 1 and body_ranked[0][1] >= min_body:
+        best_s, best_v = body_ranked[0]
+        second_v = body_ranked[1][1] if len(body_ranked) > 1 else 0.0
+        if best_v - second_v >= body_margin:
+            meta["reason"] = "body_margin"
+            meta["sid"] = best_s
+            return best_s, meta
+        # Soft: accept fused when it agrees with body top
+        if fused_sid == best_s and conf in ("high", "medium"):
+            meta["reason"] = "fused_agrees_body"
+            meta["sid"] = fused_sid
+            return str(fused_sid), meta
+    if fused_sid and conf == "high" and float(bs) >= min_body:
+        meta["reason"] = "fused_high"
+        meta["sid"] = fused_sid
+        return str(fused_sid), meta
+    meta["reason"] = "ambiguous"
+    return None, meta
 
 
 def _track_raise_majority_sid(
@@ -418,10 +584,23 @@ def _resolve_ball_handler_on_cam(
     maj_sid, margin, mass, votes = _track_raise_majority_sid(frames, tid, t_ms)
     inst_sid = shooter.get("student_id")
     sid = maj_sid or (str(inst_sid) if inst_sid else None)
+    rematch_meta: dict[str, Any] = {}
+    assoc_t = float(win_meta.get("assoc_t_ms") or t_ms)
+    rematch_sid, rematch_meta = _gallery_rematch_shooter(
+        session_id, camera_id, shooter, assoc_t,
+    )
+    if rematch_sid:
+        # Clear body rematch overrides sticky/majority flicker
+        sid = rematch_sid
+        margin = max(margin, 0.55)
+        mass = max(mass, 12.0)
     return {
         "camera_id": camera_id,
         "sid": sid,
         "inst_sid": str(inst_sid) if inst_sid else None,
+        "maj_sid": maj_sid,
+        "rematch_sid": rematch_sid,
+        "rematch": rematch_meta,
         "track_id": tid,
         "wrist_raise": raise_s,
         "ball_dist": dist,
@@ -429,7 +608,9 @@ def _resolve_ball_handler_on_cam(
         "raise_mass": mass,
         "raise_votes": votes,
         "bbox": shooter.get("bbox"),
-        "identity_confidence": shooter.get("identity_confidence"),
+        "identity_confidence": (
+            "gallery_rematch" if rematch_sid else shooter.get("identity_confidence")
+        ),
         "area": round(_person_area(shooter), 1),
         "frame_w": fw,
         "win_meta": win_meta,
@@ -464,6 +645,8 @@ def spatial_shooter_sid_at(
         c: {
             "sid": i.get("sid"),
             "inst_sid": i.get("inst_sid"),
+            "maj_sid": i.get("maj_sid"),
+            "rematch_sid": i.get("rematch_sid"),
             "wrist_raise": round(float(i.get("wrist_raise") or 0), 3),
             "ball_dist": round(float(i.get("ball_dist") or 0), 1),
             "raise_margin": round(float(i.get("raise_margin") or 0), 3),
@@ -485,13 +668,24 @@ def spatial_shooter_sid_at(
             "track_id": info.get("track_id"),
             "chosen_camera": info.get("camera_id"),
             "raise_margin": round(float(info.get("raise_margin") or 0), 3),
+            "rematch_sid": info.get("rematch_sid"),
+            "maj_sid": info.get("maj_sid"),
         })
         wm = info.get("win_meta") or {}
         if wm.get("assoc_t_ms") is not None:
             out["assoc_t_ms"] = wm["assoc_t_ms"]
         if wm.get("ball_xy") is not None:
             out["ball_xy"] = wm["ball_xy"]
+        if info.get("rematch"):
+            out["rematch"] = {
+                "reason": (info.get("rematch") or {}).get("reason"),
+                "body_top": (info.get("rematch") or {}).get("body_top"),
+            }
         return (str(sid) if sid else None), out
+
+    idcfg = _identity_cfg()
+    prefer_action_raise = bool(idcfg.get("release_prefer_action_cam_raise", True))
+    action_min_raise = float(idcfg.get("release_action_cam_min_raise", 0.70))
 
     # Prefer action-cam when raise-majority is clear and association is strong
     anchor_info = per_cam.get(anchor)
@@ -507,8 +701,18 @@ def spatial_shooter_sid_at(
         ]
         best_other_r = max(other_raises) if other_raises else 0.0
         # Only trust solo action-cam when its raise clearly leads other cams
-        raise_leads = r >= best_other_r + 0.08 or not other_raises
+        raise_leads = r >= best_other_r + 0.08 or not other_raises or r >= best_other_r - 0.05
         strong_pose = r >= 0.5 or (d <= 100.0 and r >= 0.35)
+        # At release the ball often leaves the hand: high raise + clear ID on
+        # action cam beats side-cam ball proximity (rebounder / passer trap).
+        if (
+            prefer_action_raise
+            and r >= action_min_raise
+            and margin >= 0.12
+            and mass >= 6.0
+            and (raise_leads or anchor_info.get("rematch_sid"))
+        ):
+            return _pack(anchor_info, "cam_raise_majority")
         if margin >= 0.15 and mass >= 8.0 and strong_pose and raise_leads:
             return _pack(anchor_info, "cam_raise_majority")
         # Low-raise (TT / gather): trust action-cam holder only when ball is
@@ -525,6 +729,9 @@ def spatial_shooter_sid_at(
                 return _pack(anchor_info, "cam_holder_majority")
 
     # Strong single-cam evidence anywhere (raised + near ball + clear maj)
+    # Do not let a side cam steal from a clear action-cam raise of another ID.
+    anchor_raise = float((anchor_info or {}).get("wrist_raise") or 0)
+    anchor_sid = (anchor_info or {}).get("sid")
     strong: list[tuple[float, str, dict[str, Any]]] = []
     for cam, info in per_cam.items():
         if not info.get("sid"):
@@ -534,7 +741,17 @@ def spatial_shooter_sid_at(
         margin = float(info.get("raise_margin") or 0)
         mass = float(info.get("raise_mass") or 0)
         if r >= 0.7 and d <= 180.0 and margin >= 0.10 and mass >= 5.0:
+            if (
+                prefer_action_raise
+                and cam != anchor
+                and anchor_sid
+                and info.get("sid") != anchor_sid
+                and anchor_raise >= action_min_raise
+            ):
+                continue
             score = r * (1.25 if cam == anchor else 1.0) / (1.0 + d / 200.0)
+            if info.get("rematch_sid"):
+                score *= 1.15
             strong.append((score, cam, info))
     if strong:
         strong.sort(key=lambda x: -x[0])
@@ -561,6 +778,8 @@ def spatial_shooter_sid_at(
             w = 1.5 if cam == anchor else 1.0
         w *= 0.5 + 0.7 * min(r, 2.0) / 2.0 + 0.5 * max(0.0, 1.0 - d / 200.0)
         w *= 0.7 + 0.6 * max(margin, 0.0)
+        if info.get("rematch_sid"):
+            w *= 1.25
         score[str(sid)] += w
     if score:
         best_sid = score.most_common(1)[0][0]
@@ -576,6 +795,8 @@ def spatial_shooter_sid_at(
                 1.5 if cam == anchor else 1.0
             )
             local = cam_w * (0.5 + r) / (1.0 + d / 250.0)
+            if info.get("rematch_sid"):
+                local *= 1.2
             if local > best_local:
                 best_local, chosen = local, info
         meta["vote"] = dict(score)

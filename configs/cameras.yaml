@@ -176,6 +176,13 @@ identity:
   assoc_low_iou_thr: 0.35
   kalman_iou: true
   inherit_sticky_neighbors: false
+  # GIF-style release rematch: re-query gallery on shooter crop (overrides sticky flicker)
+  release_gallery_rematch: true
+  release_rematch_min_body: 0.55
+  release_rematch_body_margin: 0.045
+  # Prefer action-cam clear raise over side-cam ball proximity (ball often left hand)
+  release_prefer_action_cam_raise: true
+  release_action_cam_min_raise: 0.70
   # Cross-camera ID: cam_01↔cam_02 左右反序配对（禁区对面视角）
   cross_cam_spatial:
     enabled: true
