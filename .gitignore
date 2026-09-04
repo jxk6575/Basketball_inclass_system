@@ -49,3 +49,6 @@ checkpoints/
 *.html.bak
 *.log
 /tmp/
+
+# Offline data/model archives
+packs/

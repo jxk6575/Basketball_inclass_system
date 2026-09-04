@@ -380,17 +380,37 @@ def process_group_action_skeletons(
         print(f"  [{group_dir.name}] extract {cam} frames={len(frame_set)} from {video.name}", flush=True)
         poses_by_cam[cam] = extract_cam_pose_window(video, sorted(frame_set))
 
-    # Sync offsets vs cam_03
-    offsets = {c: 0.0 for c in cam_ids}
+    # Sync offsets vs anchor (prefer manual group sync over wrist correlation)
     anchor = "cam_03" if "cam_03" in poses_by_cam else cam_ids[0]
-    for cam in cam_ids:
-        if cam == anchor:
-            continue
-        offsets[cam] = estimate_offset_ms_from_wrist(
-            poses_by_cam[anchor], poses_by_cam[cam],
-            fps_by_cam[anchor], fps_by_cam[cam],
-        )
-        print(f"  [{group_dir.name}] offset {cam}={offsets[cam]:.0f} ms", flush=True)
+    offsets = {c: 0.0 for c in cam_ids}
+    used_group_sync = False
+    try:
+        from src.cameras.group_sync import load_group_sync
+
+        gdoc = load_group_sync(videos_dir, gid)
+        sync_map = (gdoc or {}).get("camera_time_offsets_ms") or {}
+        if sync_map:
+            anchor = str((gdoc or {}).get("anchor_camera") or anchor)
+            for cam in cam_ids:
+                offsets[cam] = float(sync_map.get(cam, 0.0))
+            used_group_sync = True
+            print(
+                f"  [{group_dir.name}] group sync offsets (anchor={anchor}): "
+                + ", ".join(f"{c}={offsets[c]:.1f}ms" for c in cam_ids),
+                flush=True,
+            )
+    except Exception as exc:
+        print(f"  [{group_dir.name}] group sync load failed: {exc}", flush=True)
+
+    if not used_group_sync:
+        for cam in cam_ids:
+            if cam == anchor:
+                continue
+            offsets[cam] = estimate_offset_ms_from_wrist(
+                poses_by_cam[anchor], poses_by_cam[cam],
+                fps_by_cam[anchor], fps_by_cam[cam],
+            )
+            print(f"  [{group_dir.name}] wrist offset {cam}={offsets[cam]:.0f} ms", flush=True)
 
     # Per-clip triangulate
     all_frames: list[dict[str, Any]] = []
